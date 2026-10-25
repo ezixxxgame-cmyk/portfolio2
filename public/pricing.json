@@ -1,0 +1,9 @@
+{
+  "base": { "name": "Лендинг", "price": 5000 },
+  "options": [
+    { "id": "design", "name": "Дизайн с нуля", "price": 8000 },
+    { "id": "motion", "name": "Анимации и интерактив", "price": 6000 },
+    { "id": "seo", "name": "SEO-оптимизация", "price": 5000 },
+    { "id": "domain", "name": "Размещение на домене", "price": 2000 }
+  ]
+}

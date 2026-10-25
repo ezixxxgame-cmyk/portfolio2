@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>justice — веб-разработка, автоматизация, дизайн</title>
+<meta name="description" content="Сайты, веб-приложения и автоматизация для роста и развития вашего дела.">
+<meta name="theme-color" content="#020203">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23020203'/%3E%3Ccircle cx='18' cy='8.5' r='1.6' fill='%23fff'/%3E%3Cpath d='M18 13v9.5c0 3-1.8 4.5-5 4.5' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&family=Montserrat:wght@200;300;400;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<script>document.documentElement.classList.add('js')</script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<!--
+THESIS: портфолио как полёт сквозь четыре галактики. Экран не прокручивается — прорывается: картинка плавится, как сквозь мыльную плёнку, рвётся глитчем и собирается в новом пространстве.
+OWN-WORLD: чёрный вакуум, тонкие белые орбиты с бликами-звёздами, Montserrat 200–300, тёмные стеклянные окна браузера, строгий монохром.
+STORY: кто я → работы в невесомости → цена за десять секунд → написать в Telegram.
+FIRST VIEWPORT: слева трёхстрочный заголовок и пилюля «Посмотреть работы», справа светящийся узел нитей, по центру снизу подсказка-мышь.
+FORM: задана брифом (4 референса), без рулетки направлений.
+-->
+<canvas class="space" aria-hidden="true"></canvas>
+<div class="flash" aria-hidden="true"></div>
+
+<svg class="fx" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-arrow" viewBox="0 0 12 12"><path d="M3 9 9 3M4.2 3H9v4.8"/></symbol>
+    <symbol id="i-down" viewBox="0 0 12 12"><path d="M6 1.5v9M2.6 7.2 6 10.6l3.4-3.4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 12 12"><path d="M2.4 6.3 4.9 8.7 9.7 3.5"/></symbol>
+  </defs>
+  <!-- transition warp: lens → one of five distortion fields → explosion shockwave → tearing → per-channel split -->
+  <filter id="warp" color-interpolation-filters="sRGB" x="0" y="0" width="1" height="1">
+    <feFlood flood-color="#808080" result="flat"/>
+    <feImage id="fx-lens" result="lensImg" preserveAspectRatio="none"/>
+    <feMerge result="lens"><feMergeNode in="flat"/><feMergeNode in="lensImg"/></feMerge>
+    <feDisplacementMap id="fx-lens-d" in="SourceGraphic" in2="lens" scale="0" xChannelSelector="R" yChannelSelector="G" result="a"/>
+    <feImage class="fx-field" data-mode="liquid" result="liquid" preserveAspectRatio="none"/>
+    <feImage class="fx-field" data-mode="swirl" result="swirl" preserveAspectRatio="none"/>
+    <feImage class="fx-field" data-mode="ripple" result="ripple" preserveAspectRatio="none"/>
+    <feImage class="fx-field" data-mode="shear" result="shear" preserveAspectRatio="none"/>
+    <feImage class="fx-field" data-mode="rain" result="rain" preserveAspectRatio="none"/>
+    <feMerge result="wave"><feMergeNode in="flat"/><feMergeNode id="fx-field-in" in="liquid"/></feMerge>
+    <feDisplacementMap id="fx-wave-d" in="a" in2="wave" scale="0" xChannelSelector="R" yChannelSelector="G" result="b"/>
+    <feImage id="fx-blast" result="blastImg" preserveAspectRatio="none"/>
+    <feMerge result="blast"><feMergeNode in="flat"/><feMergeNode in="blastImg"/></feMerge>
+    <feDisplacementMap id="fx-blast-d" in="b" in2="blast" scale="0" xChannelSelector="R" yChannelSelector="G" result="bb"/>
+    <feImage class="fx-tear" result="t0" preserveAspectRatio="none"/>
+    <feImage class="fx-tear" result="t1" preserveAspectRatio="none"/>
+    <feImage class="fx-tear" result="t2" preserveAspectRatio="none"/>
+    <feDisplacementMap id="fx-tear-d" in="bb" in2="t0" scale="0" xChannelSelector="R" yChannelSelector="G" result="c"/>
+    <feColorMatrix in="c" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/>
+    <feOffset id="fx-r" in="r" dx="0" dy="0" result="ro"/>
+    <feColorMatrix in="c" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g"/>
+    <feColorMatrix in="c" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="bl"/>
+    <feOffset id="fx-b" in="bl" dx="0" dy="0" result="bo"/>
+    <feBlend in="ro" in2="g" mode="screen" result="rg"/>
+    <feBlend in="rg" in2="bo" mode="screen"/>
+  </filter>
+</svg>
+
+<header class="bar">
+  <a class="logo" href="#top" data-go="0" aria-label="justice — на первый экран">justice</a>
+  <nav class="nav" aria-label="Основная навигация">
+    <a href="#portfolio" data-go="1">Портфолио</a>
+    <a href="#calculator" data-go="2">Калькулятор</a>
+    <a class="pill" href="https://t.me/wa1dx" target="_blank" rel="noopener">Telegram</a>
+  </nav>
+</header>
+
+<main class="deck">
+  <section class="screen hero" id="top" aria-label="Главная">
+    <div class="hero__body" data-calm>
+      <p class="micro" data-r>Web development <span>•</span> Automation <span>•</span> Design</p>
+      <h1 data-r>Создаю <b>цифровые</b> решения для вашего бизнеса</h1>
+      <p class="lead" data-r>Сайты, веб-приложения и автоматизация для роста и развития вашего дела.</p>
+      <a class="btn" href="#portfolio" data-go="1" data-r>Посмотреть работы</a>
+    </div>
+    <button class="cue" type="button" data-go="1" aria-label="Перейти к работам"><span class="mouse"></span></button>
+  </section>
+
+  <section class="screen works" id="portfolio" aria-labelledby="works-title">
+    <div class="side" data-calm>
+      <p class="count" data-r>02 <span>/ 04</span></p>
+      <h2 id="works-title" data-r>Мои работы</h2>
+      <span class="rule" data-r></span>
+      <p class="sub" data-r>Веб-проекты, автоматизация<br>и цифровые решения.</p>
+      <div class="pmeta" data-r aria-live="polite">
+        <span class="pmeta__tag"></span>
+        <h3 class="pmeta__name"></h3>
+        <p class="pmeta__desc"></p>
+        <p class="pmeta__count"><span class="pmeta__cur">01</span><span class="pmeta__bar"><i></i></span><span class="pmeta__all">03</span></p>
+      </div>
+    </div>
+
+    <div class="stage" aria-hidden="true">
+      <div class="orbit">
+        <article class="card" data-name="Complimento" data-tag="Сайт" data-desc="Лендинг для локального бизнеса с современным дизайном">
+          <div class="card__bar"><i></i><i></i><i></i></div>
+          <div class="mock mock--compl">
+            <div class="m-nav"><b>Complimento</b><span>О нас</span><span>Услуги</span><span>Контакты</span><em>Заказать</em></div>
+            <p class="m-h">Премиальный<br><span>сервис</span> для вашего<br><span>бизнеса</span></p>
+            <p class="m-p">Современные решения<br>для роста и развития</p>
+            <span class="m-btn">Узнать больше <svg class="i"><use href="#i-arrow"/></svg></span>
+            <span class="m-count">01 <span>/</span> 04</span>
+            <span class="m-mouse"></span>
+            <svg class="m-ribbon" viewBox="0 0 300 230" data-ribbon></svg>
+          </div>
+        </article>
+        <article class="card" data-name="Content Bot" data-tag="Приложение" data-desc="Автоматизация публикации контента в соцсетях">
+          <div class="card__bar"><i></i><i></i><i></i></div>
+          <div class="mock mock--bot">
+            <div class="m-brand"><svg class="m-logo" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="3.5"/><path d="M8 5v6M5 8h6"/></svg>Content Bot</div>
+            <p class="m-h">Автоматизация<br><b>контента</b></p>
+            <p class="m-p">Публикуйте контент<br>легко и быстро</p>
+            <span class="m-btn">Подробнее <svg class="i"><use href="#i-arrow"/></svg></span>
+            <svg class="m-crystal" viewBox="-100 -100 200 200"><path class="back"/><path class="front"/><g class="tips"></g></svg>
+          </div>
+        </article>
+        <article class="card" data-name="Viranto CRM" data-tag="CRM" data-desc="Система для поиска и работы с клиентами">
+          <div class="card__bar"><i></i><i></i><i></i></div>
+          <div class="mock mock--crm">
+            <div class="m-brand"><svg class="m-logo" viewBox="0 0 16 16"><path d="M8 1.6 13.8 4v4c0 3.1-2.4 5.4-5.8 6.3C4.6 13.4 2.2 11.1 2.2 8V4z"/><path d="M5.6 6.2 8 10.4l2.4-4.2"/></svg>Viranto CRM</div>
+            <p class="m-h">Управляй<br><b>клиентами</b><br><b>эффективнее</b></p>
+            <p class="m-p">CRM-система для автоматизации<br>бизнес-процессов</p>
+            <span class="m-btn">Открыть проект <svg class="i"><use href="#i-arrow"/></svg></span>
+            <div class="m-dash">
+              <div class="m-rail"><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="m-main">
+                <div class="m-kpis"><i></i><i></i><i></i></div>
+                <svg class="m-chart" viewBox="0 0 200 80" preserveAspectRatio="none">
+                  <path class="area" d="M0 62 C14 58 22 40 36 44 S58 66 72 52 96 18 112 26 136 58 150 46 176 12 200 20 V80 H0Z"/>
+                  <path class="ln" d="M0 62 C14 58 22 40 36 44 S58 66 72 52 96 18 112 26 136 58 150 46 176 12 200 20"/>
+                </svg>
+                <div class="m-rows"><i></i><i></i><i></i></div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <button class="skip" type="button" data-go="2">Перейти дальше <svg class="i"><use href="#i-down"/></svg></button>
+    <div class="hint"><span class="hint__line"></span><span class="mouse"></span><span>Листайте<br>для просмотра</span></div>
+  </section>
+
+  <section class="screen calc" id="calculator" aria-labelledby="calc-title">
+    <div class="side" data-calm>
+      <p class="count count--line" data-r>03 <span>/ 04</span></p>
+      <h2 id="calc-title" data-r>Рассчитайте стоимость <span class="dim">проекта</span></h2>
+      <p class="sub" data-r>Укажите параметры, и я подберу оптимальное решение</p>
+    </div>
+
+    <form class="calc-card" id="calc" data-r>
+      <div class="calc-head">
+        <p class="calc-head__name">Лендинг</p>
+        <p class="calc-head__base">Базовая стоимость <span class="calc-head__price"></span></p>
+      </div>
+      <div class="calc-body">
+        <div class="calc-fields">
+          <fieldset class="calc-opts">
+            <legend class="label">Дополнительные опции</legend>
+            <div class="checks"></div>
+          </fieldset>
+          <p class="calc-empty" hidden>Опции подберём при обсуждении проекта.</p>
+        </div>
+        <div class="calc-total">
+          <p class="calc-total__label">Итоговая стоимость</p>
+          <p class="total" aria-live="polite"><span class="total__from">от</span> <span class="total__sum">0</span> ₽</p>
+          <a class="btn" id="calc-cta" href="https://t.me/wa1dx" target="_blank" rel="noopener">Получить точную оценку</a>
+        </div>
+      </div>
+    </form>
+
+    <div class="hint"><span class="hint__line"></span><span class="mouse"></span><span>Быстрый<br>и точный расчёт</span></div>
+  </section>
+
+  <section class="screen contact" id="contact" aria-labelledby="contact-title">
+    <div class="side" data-calm>
+      <p class="count count--line" data-r>04 <span>/ 04</span></p>
+      <h2 id="contact-title" data-r>Свяжитесь<br>со <span class="dim">мной</span></h2>
+      <p class="sub" data-r>Готов обсудить ваш проект и ответить на любые вопросы</p>
+    </div>
+
+    <a class="tg" href="https://t.me/wa1dx" target="_blank" rel="noopener" data-r>
+      <span class="tg__visual" aria-hidden="true">
+        <svg class="tg__orbit" viewBox="0 0 260 200"><ellipse cx="130" cy="100" rx="122" ry="50" transform="rotate(-20 130 100)"/><ellipse class="faint" cx="130" cy="100" rx="96" ry="72" transform="rotate(28 130 100)"/></svg>
+        <span class="tg__sphere"></span>
+        <svg class="tg__front" viewBox="0 0 260 200"><path d="M8 100A122 50 0 0 0 252 100" transform="rotate(-20 130 100)"/></svg>
+        <span class="tg__plane">
+          <svg viewBox="0 0 24 24">
+            <defs>
+              <linearGradient id="pl-a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity=".55"/></linearGradient>
+              <linearGradient id="pl-b" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".8"/><stop offset="1" stop-color="#fff" stop-opacity=".25"/></linearGradient>
+            </defs>
+            <path d="M2.6 11.3 21.2 3.8 9.9 14.1Z" fill="url(#pl-a)"/>
+            <path d="M21.2 3.8 16.9 20.3 9.9 14.1Z" fill="url(#pl-b)"/>
+            <path d="M9.9 14.1 10.5 19.6 13.1 16.7Z" fill="#fff" fill-opacity=".35"/>
+            <path d="M2.6 11.3 21.2 3.8 16.9 20.3 9.9 14.1ZM9.9 14.1 21.2 3.8M9.9 14.1l.6 5.5 2.6-2.9" fill="none" stroke="#fff" stroke-width=".45" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="tg__flare"></span>
+      </span>
+      <span class="tg__text">
+        <span class="badge"><i></i>Telegram</span>
+        <span class="tg__cta">Написать<br>в Telegram</span>
+        <span class="tg__note">Быстрый ответ<br>и обсуждение проекта</span>
+      </span>
+    </a>
+
+    <div class="hint hint--static"><span class="hint__line"></span><span class="mouse"></span><span>Напишите мне<br>в Telegram</span></div>
+  </section>
+</main>
+</body>
+</html>
