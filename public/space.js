@@ -78,16 +78,7 @@ function layer(w, h) {
   return c;
 }
 
-// ctx.filter can exist and still do nothing (WebKit: behind a flag, or ignored on canvases outside the
-// document, which is what the glow levels are), so blur a block on a detached canvas and look for spill
-function blurWorks() {
-  const g = layer(9, 9).getContext('2d');
-  if (!('filter' in g)) return false;
-  g.filter = 'blur(2px)';
-  g.fillStyle = '#fff';
-  g.fillRect(3, 3, 3, 3);
-  return g.getImageData(0, 4, 1, 1).data[3] > 0;
-}
+const GREY = Array.from({ length: 256 }, (_, v) => `rgb(${v},${v},${v})`);
 
 function starSprite(size) {
   const c = layer(size, size), g = c.getContext('2d'), m = size / 2;
@@ -125,7 +116,6 @@ export class Space {
     this.mix = 1; // galaxy crossfade progress, driven by the transition
     this.zoomOld = this.zoomNew = 1; // per-galaxy scale during the explosion
     this.fx.blastR = this.fx.blastA = 0; // explosion shockwave: front radius and push, device px
-    this.soft = blurWorks(); // GPU gaussian glow; Safari falls back to a deeper downsampling chain
     this.calm = [];
     this.lit = this.lit1 = 1;
     this.layer = { alpha: 1, zoom: 1 };
@@ -158,31 +148,19 @@ export class Space {
     // full device resolution up to 2x, 3x on phones (small screens, sharp lines matter most there);
     // only giant 4K+ backing stores get trimmed
     const small = w < 760;
-    this.dpr = Math.min(devicePixelRatio || 1, small ? 3 : 2, Math.sqrt(8.3e6 / (w * h)));
+    this.dpr = Math.min(devicePixelRatio || 1, small ? 3 : 2, this.cap || 3, Math.sqrt(8.3e6 / (w * h)));
     const W = (this.W = Math.round(w * this.dpr)), H = (this.H = Math.round(h * this.dpr));
     this.S = (W + H) / 2;
     this.c.width = W;
     this.c.height = H;
-    // glow mip chain: [downscale, blur (level px per dpr), weight when folded into the level above,
-    // keep (0: the level is only a resampling step, its own content is dropped)]. Weights multiply
-    // down the chain; the product on a wide level stays near 2-3, or its faint 8-bit tail turns into
-    // visible bands. Phones get a brighter halo. Without a working blur (Safari) the chain runs
-    // deeper and the repeated 2x halving and doubling is the blur; it halves down to the first
-    // weighted level, picked in css px so 1x, 2x and 3x screens glow alike.
-    let spec;
-    if (this.soft) spec = small ? [[2, 1.8, 1.6], [4, 2.6, 1.7]] : [[2, 1.4, 1], [4, 2.6, 2]];
-    else {
-      const first = Math.max(4, 2 ** Math.round(Math.log2((small ? 4 : 8) * this.dpr)));
-      spec = [];
-      for (let k = 2; k < first; k *= 2) spec.push([k, 0, 1, 0]);
-      (small ? [1, 1.6, 1.7] : [1, 2]).forEach((add, i) => spec.push([first * 2 ** i, 0, add]));
-    }
-    this.glow = spec.map(([k, blur, add, keep = 1]) => {
-      const c = layer(Math.ceil(W / k), Math.ceil(H / k)), g = c.getContext('2d');
-      // a plain halving must average all four pixels; low-quality scaling may just pick one,
-      // and a thin line then breaks into dashes
-      if (!this.soft) g.imageSmoothingQuality = 'high';
-      return { c, g, blur, add, keep };
+    // glow buffers at 1/2, 1/4 and 1/8 css resolution: [downscale, halo width in buffer px, weight].
+    // The lines are stroked straight into them (see strokes), so the halo is rasterised soft at low
+    // resolution instead of blurring or shrinking the frame: no ctx.filter, no aliasing of thin lines,
+    // and every engine, WebKit included, draws the same glow. Phones get a brighter halo.
+    const spec = small ? [[2, 1.5, 0.42], [4, 1.5, 0.24], [8, 1.7, 0.15]] : [[2, 1.5, 0.22], [4, 1.5, 0.12], [8, 1.7, 0.08]];
+    this.glow = spec.map(([k, width, weight]) => {
+      const c = layer(Math.ceil(w / k), Math.ceil(h / k));
+      return { c, g: c.getContext('2d'), s: 1 / (k * this.dpr), sw: w / k, sh: h / k, width, weight };
     });
     this.scratch = layer(W, H); // frame snapshot for the colour split and glitch tearing
     this.sctx = this.scratch.getContext('2d');
@@ -361,24 +339,30 @@ export class Space {
 
   // A smooth midpoint-quadratic spline, stroked in short runs: small bounds keep Chrome's stroke
   // rasterizer fast. Runs are opaque greys (brightness = colour, not alpha), so their round caps
-  // overlap without beading and the line reads as one continuous filament.
+  // overlap without beading and the line reads as one continuous filament. Each run also goes into
+  // the glow buffers, wider and at half brightness; they add up, so there the caps are butt and the
+  // joints (smooth, the spline is C1) neither overlap nor gap.
   strokes(width) {
-    const ctx = this.ctx, STEP = 10;
+    const ctx = this.ctx, glow = this.glow, STEP = 10;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (const c of this.cur.order) {
       const xs = c.xs, ys = c.ys, n = c.n, last = n - 2;
       ctx.lineWidth = width(c) * this.dpr;
+      for (const L of glow) L.g.lineWidth = (L.width * (0.6 + 0.5 * c.w)) / L.s;
       for (let i0 = 0; i0 < last; i0 += STEP) {
         const i1 = Math.min(last, i0 + STEP), a = Math.min(1, this.alphaAt(c, (i0 + i1 + 1) / 2 / (n - 1)));
         if (a < 0.012) continue;
-        const v = Math.round(a * 255);
-        ctx.strokeStyle = `rgb(${v},${v},${v})`;
-        ctx.beginPath();
-        ctx.moveTo((xs[i0] + xs[i0 + 1]) / 2, (ys[i0] + ys[i0 + 1]) / 2);
-        for (let i = i0 + 1; i <= i1; i++) ctx.quadraticCurveTo(xs[i], ys[i], (xs[i] + xs[i + 1]) / 2, (ys[i] + ys[i + 1]) / 2);
-        if (c.o && i1 === last) ctx.quadraticCurveTo(xs[n - 1], ys[n - 1], (xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2);
-        ctx.stroke();
+        const p = new Path2D();
+        p.moveTo((xs[i0] + xs[i0 + 1]) / 2, (ys[i0] + ys[i0 + 1]) / 2);
+        for (let i = i0 + 1; i <= i1; i++) p.quadraticCurveTo(xs[i], ys[i], (xs[i] + xs[i + 1]) / 2, (ys[i] + ys[i + 1]) / 2);
+        if (c.o && i1 === last) p.quadraticCurveTo(xs[n - 1], ys[n - 1], (xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2);
+        ctx.strokeStyle = GREY[Math.round(a * 255)];
+        ctx.stroke(p);
+        for (const L of glow) {
+          L.g.strokeStyle = GREY[Math.round(a * 127)];
+          L.g.stroke(p);
+        }
       }
     }
   }
@@ -424,14 +408,28 @@ export class Space {
     return n;
   }
 
-  sprite(x, y, size, alpha) {
+  // bloom: also a 2x copy into the 1/4 glow buffer, so bright points flare along with the lines
+  sprite(x, y, size, alpha, bloom = false) {
     this.ctx.globalAlpha = Math.min(1, alpha);
     this.ctx.drawImage(this.star, x - size / 2, y - size / 2, size, size);
+    if (!bloom) return;
+    const g = this.glow[1].g;
+    g.globalAlpha = Math.min(1, alpha);
+    g.drawImage(this.star, x - size, y - size, size * 2, size * 2);
+    g.globalAlpha = 1;
   }
 
   render(now) {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
+    // a device that can't keep up (a good share of frames slower than ~38fps outside transitions)
+    // steps the canvas resolution down, 3x to 2x to 1.5x, instead of stuttering; never back up
+    if (!this.prev) this.slow = Math.max(0, (this.slow || 0) + (dt > 0.026 ? 1 : -0.5));
+    if (this.slow > 60 && this.dpr > 1.5) {
+      this.slow = 0;
+      this.cap = this.dpr > 2 ? 2 : 1.5;
+      this.resize();
+    }
     const still = this.reduce.matches;
     const t = (this.time += dt * (still ? 0.25 : 1));
     const { ctx, W, H, dpr, fx, mouse: m } = this;
@@ -463,6 +461,18 @@ export class Space {
       }
     }
 
+    for (const L of this.glow) {
+      const g = L.g;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = 'source-over';
+      g.clearRect(0, 0, L.c.width, L.c.height);
+      g.setTransform(L.s, 0, 0, L.s, 0, 0);
+      g.globalCompositeOperation = 'lighter';
+      g.lineCap = 'butt';
+      g.lineJoin = 'round';
+    }
+
     // galaxy change: crossfade across the transition, the old set drifts outward as the new one settles
     const k = this.prev ? this.mix : 1;
     if (this.prev && k < 1) {
@@ -472,6 +482,18 @@ export class Space {
     this.layer = { alpha: k, zoom: (this.prev ? 0.95 + 0.05 * k : 1) * this.zoomNew };
     this.drawSet(this.set, t);
     this.layer = { alpha: 1, zoom: 1 };
+
+    // glow fold: each buffer scaled up into the next larger one and the largest onto the frame, so the
+    // halo costs one full-size draw; doubling bilinear steps smooth it towards a gaussian falloff.
+    // Strokes went in at half brightness, hence 2x on the last step.
+    for (let i = this.glow.length - 1; i >= 0; i--) {
+      const L = this.glow[i], up = this.glow[i - 1], g = up ? up.g : ctx;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = 'lighter';
+      g.globalAlpha = up ? L.weight / up.weight : 2 * L.weight;
+      g.drawImage(L.c, 0, 0, L.sw, L.sh, 0, 0, up ? up.sw : W, up ? up.sh : H);
+    }
+    ctx.globalAlpha = 1;
 
     // colour split: tinted, offset copies of the finished frame; GPU cost doesn't grow with line shape
     const sctx = this.sctx;
@@ -489,29 +511,6 @@ export class Space {
       }
       ctx.globalAlpha = 1;
     }
-
-    // glow: each level is the one above, halved and blurred; then the chain folds back up, smallest
-    // level first, so the whole bloom lands on the frame in a single full-size draw
-    let src = this.c;
-    for (const L of this.glow) {
-      L.g.globalCompositeOperation = 'source-over';
-      L.g.globalAlpha = 1;
-      if (this.soft) L.g.filter = `blur(${(L.blur * dpr).toFixed(2)}px)`;
-      L.g.clearRect(0, 0, L.c.width, L.c.height);
-      L.g.drawImage(src, 0, 0, L.c.width, L.c.height);
-      src = L.c;
-    }
-    for (let i = this.glow.length - 1; i >= 0; i--) {
-      const L = this.glow[i], up = this.glow[i - 1], g = up ? up.g : ctx, c = g.canvas;
-      if (this.soft && up) g.filter = 'none';
-      g.globalCompositeOperation = up && !up.keep ? 'copy' : 'lighter';
-      for (let a = L.add; a > 0; a--) {
-        g.globalAlpha = Math.min(1, a);
-        g.drawImage(L.c, 0, 0, c.width, c.height);
-        g.globalCompositeOperation = 'lighter';
-      }
-    }
-    ctx.globalAlpha = 1;
 
     ctx.globalCompositeOperation = 'source-over';
     if (fx.glitch) {
@@ -551,18 +550,18 @@ export class Space {
     const n = this.nodes();
     for (let i = 0; i < n; i++) {
       const s = this.hits[i * 3 + 2];
-      this.sprite(this.hits[i * 3], this.hits[i * 3 + 1], base * (0.45 + 0.9 * s), s * 1.6);
+      this.sprite(this.hits[i * 3], this.hits[i * 3 + 1], base * (0.45 + 0.9 * s), s * 1.6, true);
     }
     for (const [ci, u0, speed, size] of set.g.stars) {
       const c = set.curves[ci], u = (((u0 + t * speed) % 1) + 1) % 1, f = u * (c.n - 1), i = Math.min(c.n - 2, f | 0), r = f - i;
       const x = c.xs[i] + (c.xs[i + 1] - c.xs[i]) * r, y = c.ys[i] + (c.ys[i + 1] - c.ys[i]) * r;
       const local = c.a[Math.min(CHUNKS - 1, (u * CHUNKS) | 0)];
       const tw = 0.82 + 0.18 * Math.sin(t * 1.6 + ci * 3 + u0 * 10);
-      this.sprite(x, y, base * size * 1.6 * tw, (0.55 + 0.45 * Math.min(1, local * 2)) * this.calmAt(x / W, y / H) * tw * this.lit * alpha);
+      this.sprite(x, y, base * size * 1.6 * tw, (0.55 + 0.45 * Math.min(1, local * 2)) * this.calmAt(x / W, y / H) * tw * this.lit * alpha, true);
     }
     for (const [gx, gy, size] of set.g.glow) {
       const [x, y] = this.project(gx * W, gy * H, 0.9);
-      this.sprite(x, y, base * size * 2.6 * (0.9 + 0.1 * Math.sin(t * 0.9)), 0.9 * this.calmAt(x / W, y / H) * this.lit * alpha);
+      this.sprite(x, y, base * size * 2.6 * (0.9 + 0.1 * Math.sin(t * 0.9)), 0.9 * this.calmAt(x / W, y / H) * this.lit * alpha, true);
     }
   }
 }

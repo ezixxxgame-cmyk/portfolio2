@@ -611,6 +611,10 @@ arrive(screens[current]);
 
 let last = performance.now();
 function frame(now) {
+  requestAnimationFrame(frame);
+  // 90-144Hz screens draw every other refresh (~60fps): the motion is tuned for 60, so the extra
+  // frames would only double the cost
+  if (now - last < 12) return;
   const dt = Math.min(0.05, (now - last) / 1000), t = now / 1000;
   last = now;
   if (introAt) {
@@ -627,6 +631,5 @@ function frame(now) {
   if (visible(3)) flare(t * (reduce.matches ? 0.3 : 1));
   calc(now);
   space.render(now);
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
