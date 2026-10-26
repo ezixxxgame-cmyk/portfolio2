@@ -157,9 +157,14 @@ export class Space {
     // a tight halo plus a long soft tail. The lines are stroked straight into them (see strokes), so
     // the halo is rasterised soft at low resolution instead of blurring or shrinking the frame: no
     // ctx.filter, no aliasing of thin lines, and every engine, WebKit included, draws the same glow.
-    // Phones get a brighter halo.
+    // Phones get a brighter halo, and the buffers at 2x resolution with the halo width doubled to keep
+    // its size: a 3x screen otherwise stretches them 6x and up, and their pixels show. A device that
+    // proves too slow (this.cap) goes back to 1x.
     const spec = small ? [[2, 1.5, 0.45], [8, 1.7, 0.22], [16, 1.7, 0.12]] : [[2, 1.5, 0.3], [8, 1.7, 0.14], [16, 1.7, 0.09]];
+    const r = small && !this.cap ? 2 : 1;
     this.glow = spec.map(([k, width, weight]) => {
+      k /= r;
+      width *= r;
       const c = layer(Math.ceil(w / k), Math.ceil(h / k));
       return { c, g: c.getContext('2d'), s: 1 / (k * this.dpr), sw: w / k, sh: h / k, width, weight };
     });
