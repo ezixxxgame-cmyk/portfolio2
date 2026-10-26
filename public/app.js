@@ -321,14 +321,17 @@ const carousel = (() => {
     cards = $$('.card', orbit);
     n = cards.length;
     meta.all.textContent = String(n).padStart(2, '0');
+    meta.box.hidden = !n;
   }
 
+  // the orbit is empty until /api/works answers
   function measure() {
-    const cw = cards[0].offsetWidth, small = innerWidth < 761;
+    const cw = cards[0]?.offsetWidth || 0, small = innerWidth < 761;
     geo = { RX: cw * (small ? 1.05 : 1.15), RZ: cw * (small ? 1.1 : 1), RY: innerHeight * 0.035 };
   }
 
   function showMeta(i, animate) {
+    if (!n) return;
     const d = cards[i].dataset, fill = () => {
       meta.tag.textContent = d.tag;
       meta.name.textContent = d.name;
@@ -361,12 +364,13 @@ const carousel = (() => {
   showMeta(0);
 
   return {
-    // works from the admin bot go before the demo cards
     add(html) {
-      orbit.insertAdjacentHTML('afterbegin', html);
+      orbit.innerHTML = html;
       collect();
+      measure();
       front = -1;
       showMeta(target);
+      if (current === 1) space.calm = calmRects(screens[1]); // the meta block just appeared
     },
     step(dir) {
       const i = target + dir;
@@ -375,8 +379,8 @@ const carousel = (() => {
       return true;
     },
     enter(fromBelow) {
-      target = fromBelow ? n - 1 : 0;
-      pos = target + (fromBelow ? 0.7 : -0.7);
+      target = fromBelow ? Math.max(0, n - 1) : 0;
+      pos = target + ((fromBelow ? 0.7 : -0.7) * Math.min(n, 3)) / 3; // the same ~84° swing for 1–2 cards as for 3+
       vel = 0;
       showMeta(target);
     },
@@ -411,54 +415,6 @@ fetch('/api/works')
   .then((works) => works.length && carousel.add(works.map((w) =>
     `<article class="card" data-name="${esc(w.name)}" data-tag="${esc(w.tag)}" data-desc="${esc(w.desc)}" data-url="${esc(w.url || '')}"><div class="card__bar"><i></i><i></i><i></i></div><img class="card__img" src="/api/works?img=${encodeURIComponent(w.img)}" alt="Скриншот проекта ${esc(w.name)}" decoding="async"></article>`).join('')))
   .catch(() => {});
-
-// Complimento mock: a folded ribbon of fine lines
-(() => {
-  const svg = $('[data-ribbon]');
-  let out = '';
-  for (let k = 0; k < 38; k++) {
-    const ph = (k / 37) * Math.PI;
-    let d = '';
-    for (let i = 0; i <= 96; i++) {
-      const t = (i / 96) * TAU;
-      const x = 160 + Math.cos(t) * (92 + 34 * Math.cos(2 * t + ph)) + Math.sin(t * 3 + ph) * 6;
-      const y = 118 + Math.sin(t) * (46 + 30 * Math.sin(t + ph * 1.4)) + Math.sin(2 * t + ph) * 16;
-      d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
-    }
-    out += `<path d="${d}" opacity="${(0.12 + 0.6 * Math.sin(ph) ** 2).toFixed(2)}"/>`;
-  }
-  svg.innerHTML = out;
-})();
-
-// Content Bot mock: a slowly turning wireframe crystal
-const crystal = (() => {
-  const back = $('.m-crystal .back'), front = $('.m-crystal .front'), tips = $('.m-crystal .tips');
-  const V = [[0, -1.45, 0], [0, 1.1, 0]];
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * TAU + (i % 2) * 0.25;
-    V.push([Math.cos(a) * (0.62 + (i % 3) * 0.08), -0.08 + (i % 2) * 0.22, Math.sin(a) * (0.62 + (i % 3) * 0.08)]);
-  }
-  const E = [];
-  for (let i = 2; i < 7; i++) E.push([0, i], [1, i], [i, i === 6 ? 2 : i + 1]);
-  tips.innerHTML = '<circle r="2.2"/><circle r="1.6"/>';
-  const dots = [...tips.children];
-  return (t) => {
-    const ay = t * 0.32, ax = 0.32 + Math.sin(t * 0.4) * 0.1, cy = Math.cos(ay), sy = Math.sin(ay), cx = Math.cos(ax), sx = Math.sin(ax);
-    const P = V.map(([x, y, z]) => {
-      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
-      return [x1 * 52, (y * cx - z1 * sx) * 52, y * sx + z1 * cx];
-    });
-    let b = '', f = '';
-    for (const [i, j] of E) {
-      const seg = `M${P[i][0].toFixed(1)} ${P[i][1].toFixed(1)}L${P[j][0].toFixed(1)} ${P[j][1].toFixed(1)}`;
-      P[i][2] + P[j][2] > 0 ? (b += seg) : (f += seg);
-    }
-    back.setAttribute('d', b);
-    front.setAttribute('d', f);
-    dots[0].setAttribute('transform', `translate(${P[0][0].toFixed(1)} ${P[0][1].toFixed(1)})`);
-    dots[1].setAttribute('transform', `translate(${P[3][0].toFixed(1)} ${P[3][1].toFixed(1)})`);
-  };
-})();
 
 /* ---------------- telegram card orbit flare ---------------- */
 
@@ -650,10 +606,7 @@ function frame(now) {
   }
   if (tr) stepTransition(now);
   const visible = (i) => current === i || (tr && (tr.to === i || tr.from === screens[i]));
-  if (visible(1)) {
-    carousel.update(t, dt);
-    crystal(t * (reduce.matches ? 0.3 : 1));
-  }
+  if (visible(1)) carousel.update(t, dt);
   if (visible(3)) flare(t * (reduce.matches ? 0.3 : 1));
   calc(now);
   space.render(now);
