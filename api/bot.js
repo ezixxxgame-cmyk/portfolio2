@@ -1,9 +1,10 @@
-// Telegram webhook: admin panel for the landing calculator (base price + add-on options).
-import { getPricing, savePricing, kv } from '../lib/store.js';
+// Telegram webhook: admin panel for the landing calculator (base price + add-on options) and portfolio works.
+import { getPricing, savePricing, getWorks, saveWorks, kv } from '../lib/store.js';
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ADMINS = new Set((process.env.ADMIN_IDS || '').split(',').map((s) => s.trim()).filter(Boolean));
 const ID = /^[\w-]{1,16}$/;
+const IMAGE = /^image\/(jpeg|png|webp)$/;
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 const rub = (n) => `${Number(n).toLocaleString('ru-RU')} ₽`;
@@ -13,9 +14,19 @@ const parsePrice = (s) => {
   const n = Number(String(s).replace(/[\s ₽]|руб\.?/gi, ''));
   return Number.isInteger(n) && n >= 0 && n <= 1e8 ? n : null;
 };
-const cleanName = (s) => {
+const cleanName = (s, max = 40) => {
   const v = String(s ?? '').replace(/\s+/g, ' ').trim();
-  return v && v.length <= 40 ? v : null;
+  return v && v.length <= max ? v : null;
+};
+// '' or '-' means no link; a bare domain gets https://
+const cleanUrl = (s) => {
+  if (!s || s === '-') return '';
+  try {
+    const u = new URL(/^[a-z]+:/i.test(s) ? s : `https://${s}`);
+    return /^https?:$/.test(u.protocol) && u.hostname.includes('.') && s.length <= 300 ? u.href : null;
+  } catch {
+    return null;
+  }
 };
 
 async function tg(method, body) {
@@ -55,8 +66,11 @@ export async function handleUpdate(update) {
 
 /* ---------- data ---------- */
 
-// kind "b" is the base landing price, kind "o" an add-on option
-const find = (p, kind, id) => (kind === 'b' ? p.base : p.options.find((o) => o.id === id));
+// kind "b" is the base landing price, "o" an add-on option, "w" a portfolio work (stored apart, under "works")
+const load = async (kind) => (kind === 'w' ? { works: await getWorks() } : getPricing());
+const save = (d, kind) => (kind === 'w' ? saveWorks(d.works) : savePricing(d));
+const list = (d, kind) => (kind === 'w' ? d.works : d.options);
+const find = (d, kind, id) => (kind === 'b' ? d.base : list(d, kind).find((x) => x.id === id));
 
 function normalize(raw) {
   const name = cleanName(raw?.base?.name) || 'Лендинг', price = parsePrice(raw?.base?.price);
@@ -87,6 +101,7 @@ function menuView(p) {
       [btn(`Базовая цена · ${rub(p.base.price)}`, 'e:b::p'), btn('Название', 'e:b::n')],
       ...p.options.map((o) => [btn(`+ ${o.name} · ${rub(o.price)}`, `v:o:${o.id}`)]),
       [btn('＋ Опция', 'add:o'), btn('Экспорт JSON', 'exp')],
+      [btn('Проекты в портфолио →', 'm:w')],
     ],
   };
 }
@@ -104,10 +119,57 @@ function optionView(p, id) {
   };
 }
 
+function worksView({ works }) {
+  return {
+    text: [
+      '<b>Проекты в портфолио</b>',
+      ...(works.length ? works.map((w, i) => `${i + 1}. ${esc(w.name)} — ${esc(w.tag)}`) : ['Пока пусто.']), '',
+      'На сайте идут в этом порядке, перед демо-карточками.',
+      'Быстрое добавление: пришлите скриншот с подписью в любой момент.',
+    ].join('\n'),
+    kb: [
+      ...works.map((w) => [btn(w.name, `v:w:${w.id}`)]),
+      [btn('＋ Проект', 'add:w'), btn('← Калькулятор', 'm')],
+    ],
+  };
+}
+
+function workView(d, id) {
+  const w = find(d, 'w', id);
+  if (!w) return worksView(d);
+  return {
+    text: [
+      `<b>${esc(w.name)}</b> · ${esc(w.tag)}`, esc(w.desc), w.url ? esc(w.url) : 'Без ссылки', '',
+      `Позиция ${d.works.indexOf(w) + 1} из ${d.works.length}`,
+    ].join('\n'),
+    kb: [
+      [btn('Название', `e:w:${id}:n`), btn('Тип', `e:w:${id}:t`), btn('Описание', `e:w:${id}:d`)],
+      [btn('Ссылка', `e:w:${id}:u`), btn('Скриншот', `e:w:${id}:i`)],
+      [btn('↑ Выше', `mv:w:${id}:-1`), btn('↓ Ниже', `mv:w:${id}:1`), btn('Удалить', `del:w:${id}`)],
+      [btn('← Назад', 'm:w')],
+    ],
+  };
+}
+
+const menuOf = (d, kind) => (kind === 'w' ? worksView(d) : menuView(d));
+const itemView = (d, kind, id) => (kind === 'w' ? workView(d, id) : optionView(d, id));
+
+const ADD_WORK = [
+  'Пришлите скриншот проекта (фото или файл JPG, PNG, WebP) с подписью в 3–4 строки:',
+  '<code>Название\nТип, например Сайт\nКороткое описание\nhttps://ссылка</code>',
+  'Ссылка — необязательно.',
+].join('\n');
+const WORK_FIELDS = { n: ['name', 'Новое название', 40], t: ['tag', 'Новый тип (Сайт, Приложение, CRM…)', 40], d: ['desc', 'Новое описание', 120] };
+
 function prompt(p, { act, kind, id, arg }) {
-  if (act === 'add') return 'Название опции и цена через тире, например:\n<code>SEO-оптимизация — 5000</code>';
+  if (act === 'add') return kind === 'w' ? ADD_WORK : 'Название опции и цена через тире, например:\n<code>SEO-оптимизация — 5000</code>';
   const x = find(p, kind, id);
   if (!x) return 'Позиция не найдена.';
+  if (kind === 'w') {
+    if (arg === 'i') return `Пришлите новый скриншот для «${esc(x.name)}» — фото или файл JPG, PNG, WebP.`;
+    if (arg === 'u') return `Ссылка на «${esc(x.name)}» (сейчас ${esc(x.url || 'нет')}). Отправьте https://… или «-», чтобы убрать.`;
+    return `${WORK_FIELDS[arg][1]} для «${esc(x.name)}».`;
+  }
   return arg === 'p' ? `Новая цена для «${esc(x.name)}» (сейчас ${rub(x.price)}). Отправьте число.` : `Новое название для «${esc(x.name)}».`;
 }
 
@@ -133,6 +195,48 @@ function apply(p, { act, kind, id, arg }, text) {
   return kind === 'o' ? { id } : {};
 }
 
+function parseWork(text) {
+  const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
+  const url = cleanUrl(lines.length > 3 ? lines.pop() : '');
+  const [name, tag, ...desc] = lines;
+  const w = { id: uid(), name: cleanName(name), tag: cleanName(tag), desc: cleanName(desc.join(' '), 120), url };
+  if (!w.name || !w.tag || !w.desc || url == null) {
+    return 'Подпись — 3–4 строки: название (до 40 символов), тип (до 40), описание (до 120), ссылка (необязательно).';
+  }
+  return w;
+}
+
+// returns an error text, or { id } of the work to show plus { drop }: a replaced screenshot to delete after saving
+async function applyWork(d, { act, id, arg }, text, image) {
+  if (act === 'add') {
+    if (!image) return 'Нужен скриншот: фото или файл JPG, PNG, WebP с подписью.';
+    const w = parseWork(text);
+    if (typeof w === 'string') return w;
+    w.img = await storeImage(image);
+    d.works = await getWorks(); // re-read after the slow upload: a parallel update may have saved meanwhile
+    d.works.push(w);
+    return { id: w.id };
+  }
+  const w = find(d, 'w', id);
+  if (!w) return 'Проект не найден — возможно, его удалили.';
+  if (arg === 'i') {
+    if (!image) return 'Пришлите картинку: фото или файл JPG, PNG, WebP.';
+    const drop = w.img;
+    w.img = await storeImage(image);
+    return { id, drop };
+  }
+  if (arg === 'u') {
+    const url = cleanUrl(text);
+    if (url == null) return 'Ссылка вида https://example.com или «-».';
+    w.url = url;
+  } else {
+    const [field, , max] = WORK_FIELDS[arg], v = cleanName(text, max);
+    if (!v) return `От 1 до ${max} символов.`;
+    w[field] = v;
+  }
+  return { id };
+}
+
 /* ---------- handlers ---------- */
 
 const send = (chat, text, view) =>
@@ -140,7 +244,7 @@ const send = (chat, text, view) =>
 
 async function onButton(chat, cb) {
   const [act, kind, id, arg] = cb.data.split(':');
-  const p = await getPricing();
+  const p = await load(kind);
   let view, toast;
 
   if (act === 'e' || act === 'add') {
@@ -153,24 +257,26 @@ async function onButton(chat, cb) {
     return sendJson(chat, p);
   }
   if (act === 'mv') {
-    const i = p.options.findIndex((o) => o.id === id), j = i + Number(arg);
-    if (i >= 0 && j >= 0 && j < p.options.length) {
-      [p.options[i], p.options[j]] = [p.options[j], p.options[i]];
-      await savePricing(p);
+    const items = list(p, kind), i = items.findIndex((o) => o.id === id), j = i + Number(arg);
+    if (i >= 0 && j >= 0 && j < items.length) {
+      [items[i], items[j]] = [items[j], items[i]];
+      await save(p, kind);
     }
-    view = optionView(p, id);
+    view = itemView(p, kind, id);
   } else if (act === 'del') {
-    view = { text: `Удалить опцию «${esc(find(p, 'o', id)?.name)}»?`, kb: [[btn('Да, удалить', `DEL:o:${id}`), btn('Отмена', `v:o:${id}`)]] };
+    const what = kind === 'w' ? 'проект' : 'опцию';
+    view = { text: `Удалить ${what} «${esc(find(p, kind, id)?.name)}»?`, kb: [[btn('Да, удалить', `DEL:${kind}:${id}`), btn('Отмена', `v:${kind}:${id}`)]] };
   } else if (act === 'DEL') {
-    const i = p.options.findIndex((o) => o.id === id);
+    const items = list(p, kind), i = items.findIndex((o) => o.id === id);
     if (i >= 0) {
-      p.options.splice(i, 1);
-      await savePricing(p);
+      const [x] = items.splice(i, 1);
+      await save(p, kind);
+      if (x.img) await kv.del(`img:${x.img}`);
       toast = 'Удалено';
     }
-    view = menuView(p);
+    view = menuOf(p, kind);
   } else {
-    view = act === 'v' ? optionView(p, id) : menuView(p);
+    view = act === 'v' ? itemView(p, kind, id) : menuOf(p, kind);
   }
 
   await tg('answerCallbackQuery', { callback_query_id: cb.id, text: toast });
@@ -178,30 +284,42 @@ async function onButton(chat, cb) {
 }
 
 async function onMessage(chat, msg) {
-  const text = (msg.text || '').trim();
+  const text = (msg.text || msg.caption || '').trim();
   if (text === '/id') return send(chat, `Ваш Telegram ID: <code>${msg.from.id}</code>`);
   if (text === '/start' || text === '/menu' || text === '/cancel') {
     await kv.del(`state:${chat}`);
     return send(chat, text === '/cancel' ? 'Отменено.' : '', menuView(await getPricing()));
   }
-  if (msg.document) return importJson(chat, await downloadJson(msg.document));
-  if (text.startsWith('{')) return importJson(chat, text);
+  const doc = msg.document;
+  const image = msg.photo ? { ...msg.photo.at(-1), mime_type: 'image/jpeg' } : IMAGE.test(doc?.mime_type) ? doc : null;
+  if (doc && !image) return importJson(chat, await (await download(doc, 200_000)).text());
+  if (!image && text.startsWith('{')) return importJson(chat, text);
 
-  const state = await kv.get(`state:${chat}`);
-  const p = await getPricing();
+  // a screenshot starts a new work unless the prompt asked for one; it never fills a text prompt
+  const saved = await kv.get(`state:${chat}`);
+  const state = image && !(saved?.kind === 'w' && (saved.act === 'add' || saved.arg === 'i')) ? { act: 'add', kind: 'w' } : saved;
+  const p = await load(state?.kind);
   if (!state) return send(chat, '', menuView(p));
-  const result = apply(p, state, text);
+  const result = state.kind === 'w' ? await applyWork(p, state, text, image) : apply(p, state, text);
   if (typeof result === 'string') return send(chat, `${result}\nПопробуйте ещё раз или /cancel.`);
-  await savePricing(p);
+  await save(p, state.kind);
+  if (result.drop) await kv.del(`img:${result.drop}`);
   await kv.del(`state:${chat}`);
-  return send(chat, 'Сохранено. На сайте обновится в течение минуты.', result.id ? optionView(p, result.id) : menuView(p));
+  return send(chat, 'Сохранено. На сайте обновится в течение минуты.', result.id ? itemView(p, state.kind, result.id) : menuOf(p, state.kind));
 }
 
-async function downloadJson(doc) {
-  if (doc.file_size > 200_000) throw new Error('файл больше 200 КБ');
-  const { result } = await tg('getFile', { file_id: doc.file_id });
+async function download(file, max) {
+  if (file.file_size > max) throw new Error(`файл больше ${max / 1000} КБ`);
+  const { result } = await tg('getFile', { file_id: file.file_id });
   const res = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${result.file_path}`);
-  return res.text();
+  if (!res.ok) throw new Error(`Telegram не отдал файл (${res.status})`);
+  return res;
+}
+
+async function storeImage(file) {
+  const id = uid(), buf = Buffer.from(await (await download(file, 2_000_000)).arrayBuffer());
+  await kv.set(`img:${id}`, { type: file.mime_type, data: buf.toString('base64') });
+  return id;
 }
 
 async function importJson(chat, text) {

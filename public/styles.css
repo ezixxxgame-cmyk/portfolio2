@@ -83,6 +83,10 @@ h2 { font: 300 clamp(34px, 2.2vw + 16px, 64px)/1.08 var(--display); letter-spaci
 .pmeta__tag { display: inline-flex; height: 24px; align-items: center; padding: 0 11px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 11px; color: var(--fg-2); }
 .pmeta__name { margin-top: 14px; font: 400 21px/1.2 var(--display); letter-spacing: -.01em; }
 .pmeta__desc { margin-top: 8px; max-width: 19em; color: var(--fg-2); font-size: 13.5px; line-height: 1.5; }
+.pmeta__link { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; margin-left: auto; font-size: 13px; letter-spacing: 0; color: var(--fg); text-decoration: underline 1px var(--line-2); text-underline-offset: 5px; transition: text-decoration-color .35s; }
+.pmeta__link:hover { text-decoration-color: #fff; }
+.pmeta__link:hover .i { transform: translate(2px, -2px); }
+.pmeta__link[hidden] { display: none; }
 .pmeta__count { display: flex; align-items: center; gap: 12px; margin-top: 20px; font-size: 11px; letter-spacing: .12em; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .pmeta__cur { color: var(--fg); }
 .pmeta__bar { position: relative; width: 64px; height: 1px; background: var(--line-2); overflow: hidden; }
@@ -102,6 +106,7 @@ h2 { font: 300 clamp(34px, 2.2vw + 16px, 64px)/1.08 var(--display); letter-spaci
 .card.is-front { cursor: default; }
 .card__bar { display: flex; align-items: center; gap: 1.1cqw; height: 5.4cqw; padding: 0 2.4cqw; border-bottom: 1px solid rgb(255 255 255 / .13); }
 .card__bar i { width: 1.15cqw; height: 1.15cqw; border-radius: 50%; background: rgb(255 255 255 / .72); }
+.card__img { position: absolute; top: 5.4cqw; left: 0; width: 100%; height: calc(100% - 5.4cqw); object-fit: cover; object-position: top; }
 
 .mock { position: absolute; inset: 5.4cqw 0 0; padding: 4cqw 5cqw; font-family: var(--ui); color: #fff; }
 .m-h { position: relative; z-index: 1; margin-top: 11cqw; font: 300 5.6cqw/1.12 var(--display); letter-spacing: -.02em; }

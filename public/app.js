@@ -4,6 +4,7 @@ const TG = 'https://t.me/wa1dx';
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const smooth = (a, b, x) => {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
@@ -311,12 +312,16 @@ function calmRects(screen) {
 /* ---------------- portfolio orbit ---------------- */
 
 const carousel = (() => {
-  const cards = $$('.card');
-  const n = cards.length;
-  const meta = { tag: $('.pmeta__tag'), name: $('.pmeta__name'), desc: $('.pmeta__desc'), cur: $('.pmeta__cur'), bar: $('.pmeta__bar i'), box: $('.pmeta') };
+  const orbit = $('.orbit');
+  const meta = { tag: $('.pmeta__tag'), name: $('.pmeta__name'), desc: $('.pmeta__desc'), link: $('.pmeta__link'), cur: $('.pmeta__cur'), all: $('.pmeta__all'), bar: $('.pmeta__bar i'), box: $('.pmeta') };
   const tilts = [[4, -5, 3.5], [-3, 7, -2.5], [5, 4, 2]];
-  let pos = 0, vel = 0, target = 0, geo, front = -1;
-  $('.pmeta__all').textContent = String(n).padStart(2, '0');
+  let cards, n, pos = 0, vel = 0, target = 0, geo, front = -1;
+
+  function collect() {
+    cards = $$('.card', orbit);
+    n = cards.length;
+    meta.all.textContent = String(n).padStart(2, '0');
+  }
 
   function measure() {
     const cw = cards[0].offsetWidth, small = innerWidth < 761;
@@ -328,6 +333,8 @@ const carousel = (() => {
       meta.tag.textContent = d.tag;
       meta.name.textContent = d.name;
       meta.desc.textContent = d.desc;
+      meta.link.hidden = !d.url;
+      if (d.url) meta.link.href = d.url;
       meta.cur.textContent = String(i + 1).padStart(2, '0');
     };
     meta.bar.style.transform = `scaleX(${(i + 1) / n})`;
@@ -344,12 +351,23 @@ const carousel = (() => {
     showMeta(i, true);
   }
 
-  cards.forEach((card, i) => card.addEventListener('click', () => to(i)));
+  orbit.addEventListener('click', (e) => {
+    const i = cards.indexOf(e.target.closest('.card'));
+    if (i >= 0) to(i);
+  });
   addEventListener('resize', measure);
+  collect();
   measure();
   showMeta(0);
 
   return {
+    // works from the admin bot go before the demo cards
+    add(html) {
+      orbit.insertAdjacentHTML('afterbegin', html);
+      collect();
+      front = -1;
+      showMeta(target);
+    },
     step(dir) {
       const i = target + dir;
       if (i < 0 || i >= n) return false;
@@ -367,15 +385,18 @@ const carousel = (() => {
       vel += ((target - pos) * k - vel * 2 * Math.sqrt(k)) * dt;
       pos += vel * dt;
       const still = reduce.matches ? 0 : 1, { RX, RZ, RY } = geo;
-      const f = Math.round(pos);
+      const f = Math.round(pos), step = TAU / Math.min(n, 3);
       cards.forEach((card, i) => {
-        const th = (i - pos) * (TAU / n), s = Math.sin(th), c = Math.cos(th), [bx, by, bz] = tilts[i % 3], ph = i * 2.1;
+        // ring offset from the front card, wrapped to ±n/2; the ring keeps three places, extra cards hide behind
+        const th = ((((i - pos + n / 2) % n) + n) % n - n / 2) * step, s = Math.sin(th), c = Math.cos(th), [bx, by, bz] = tilts[i % 3], ph = i * 2.1;
+        const fade = n > 3 ? clamp((Math.PI - Math.abs(th)) * 2, 0, 1) : 1;
         const x = s * RX, z = (c - 1) * RZ, y = s * RY + Math.sin(t * 0.6 + ph) * 7 * still;
         const ry = -s * 34 + by + Math.sin(t * 0.53 + ph) * 2.4 * still;
         const rx = bx + Math.sin(t * 0.41 + ph * 1.3) * 2.2 * still;
         const rz = bz + Math.sin(t * 0.37 + ph * 0.7) * 1.5 * still;
         card.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,${z.toFixed(1)}px) rotateY(${ry.toFixed(2)}deg) rotateX(${rx.toFixed(2)}deg) rotateZ(${rz.toFixed(2)}deg) scale(${(0.82 + 0.18 * c).toFixed(3)})`;
-        card.style.opacity = clamp((c + 1.1) * 1.2, 0, 1).toFixed(3);
+        card.style.opacity = (clamp((c + 1.1) * 1.2, 0, 1) * fade).toFixed(3);
+        card.style.visibility = fade ? '' : 'hidden';
       });
       if (f !== front) {
         front = f;
@@ -384,6 +405,12 @@ const carousel = (() => {
     },
   };
 })();
+
+fetch('/api/works')
+  .then((r) => (r.ok ? r.json() : []))
+  .then((works) => works.length && carousel.add(works.map((w) =>
+    `<article class="card" data-name="${esc(w.name)}" data-tag="${esc(w.tag)}" data-desc="${esc(w.desc)}" data-url="${esc(w.url || '')}"><div class="card__bar"><i></i><i></i><i></i></div><img class="card__img" src="/api/works?img=${encodeURIComponent(w.img)}" alt="Скриншот проекта ${esc(w.name)}" decoding="async"></article>`).join('')))
+  .catch(() => {});
 
 // Complimento mock: a folded ribbon of fine lines
 (() => {
@@ -455,7 +482,6 @@ const flare = (() => {
 const calc = (() => {
   const form = $('#calc'), checks = $('.checks'), opts = $('.calc-opts'), empty = $('.calc-empty');
   const nameEl = $('.calc-head__name'), baseEl = $('.calc-head__price'), sumEl = $('.total__sum'), cta = $('#calc-cta');
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const rub = (n) => Math.round(n).toLocaleString('ru-RU');
   let data = null, shown = 0, tween = null;
 
