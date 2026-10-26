@@ -78,6 +78,17 @@ function layer(w, h) {
   return c;
 }
 
+// ctx.filter can exist and still do nothing (WebKit: behind a flag, or ignored on canvases outside the
+// document, which is what the glow levels are), so blur a block on a detached canvas and look for spill
+function blurWorks() {
+  const g = layer(9, 9).getContext('2d');
+  if (!('filter' in g)) return false;
+  g.filter = 'blur(2px)';
+  g.fillStyle = '#fff';
+  g.fillRect(3, 3, 3, 3);
+  return g.getImageData(0, 4, 1, 1).data[3] > 0;
+}
+
 function starSprite(size) {
   const c = layer(size, size), g = c.getContext('2d'), m = size / 2;
   const rg = g.createRadialGradient(m, m, 0, m, m, m);
@@ -114,7 +125,7 @@ export class Space {
     this.mix = 1; // galaxy crossfade progress, driven by the transition
     this.zoomOld = this.zoomNew = 1; // per-galaxy scale during the explosion
     this.fx.blastR = this.fx.blastA = 0; // explosion shockwave: front radius and push, device px
-    this.soft = 'filter' in this.ctx; // GPU gaussian glow; Safari falls back to a deeper downsampling chain
+    this.soft = blurWorks(); // GPU gaussian glow; Safari falls back to a deeper downsampling chain
     this.calm = [];
     this.lit = this.lit1 = 1;
     this.layer = { alpha: 1, zoom: 1 };
@@ -144,8 +155,10 @@ export class Space {
 
   resize() {
     const w = innerWidth, h = innerHeight;
-    // full device resolution up to 2x; only giant 4K+ backing stores get trimmed
-    this.dpr = Math.min(devicePixelRatio || 1, 2, Math.sqrt(8.3e6 / (w * h)));
+    // full device resolution up to 2x, 3x on phones (small screens, sharp lines matter most there);
+    // only giant 4K+ backing stores get trimmed
+    const small = w < 760;
+    this.dpr = Math.min(devicePixelRatio || 1, small ? 3 : 2, Math.sqrt(8.3e6 / (w * h)));
     const W = (this.W = Math.round(w * this.dpr)), H = (this.H = Math.round(h * this.dpr));
     this.S = (W + H) / 2;
     this.c.width = W;
@@ -153,15 +166,23 @@ export class Space {
     // glow mip chain: [downscale, blur (level px per dpr), weight when folded into the level above,
     // keep (0: the level is only a resampling step, its own content is dropped)]. Weights multiply
     // down the chain; the product on a wide level stays near 2-3, or its faint 8-bit tail turns into
-    // visible bands. Phones get a brighter halo. Safari has no ctx.filter: there the chain runs
-    // deeper and the repeated 2x halving and doubling is the blur.
-    const small = w < 760;
-    const spec = this.soft
-      ? (small ? [[2, 1.8, 1.6], [4, 2.6, 1.7]] : [[2, 1.4, 1], [4, 2.6, 2]])
-      : [[2, 0, 1, 0], [4, 0, 1, 0], [8, 0, 1], ...(small ? [[16, 0, 1.6], [32, 0, 1.7]] : [[16, 0, 2]])];
+    // visible bands. Phones get a brighter halo. Without a working blur (Safari) the chain runs
+    // deeper and the repeated 2x halving and doubling is the blur; it halves down to the first
+    // weighted level, picked in css px so 1x, 2x and 3x screens glow alike.
+    let spec;
+    if (this.soft) spec = small ? [[2, 1.8, 1.6], [4, 2.6, 1.7]] : [[2, 1.4, 1], [4, 2.6, 2]];
+    else {
+      const first = Math.max(4, 2 ** Math.round(Math.log2((small ? 4 : 8) * this.dpr)));
+      spec = [];
+      for (let k = 2; k < first; k *= 2) spec.push([k, 0, 1, 0]);
+      (small ? [1, 1.6, 1.7] : [1, 2]).forEach((add, i) => spec.push([first * 2 ** i, 0, add]));
+    }
     this.glow = spec.map(([k, blur, add, keep = 1]) => {
-      const c = layer(Math.ceil(W / k), Math.ceil(H / k));
-      return { c, g: c.getContext('2d'), blur, add, keep };
+      const c = layer(Math.ceil(W / k), Math.ceil(H / k)), g = c.getContext('2d');
+      // a plain halving must average all four pixels; low-quality scaling may just pick one,
+      // and a thin line then breaks into dashes
+      if (!this.soft) g.imageSmoothingQuality = 'high';
+      return { c, g, blur, add, keep };
     });
     this.scratch = layer(W, H); // frame snapshot for the colour split and glitch tearing
     this.sctx = this.scratch.getContext('2d');
