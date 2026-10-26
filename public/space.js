@@ -153,11 +153,12 @@ export class Space {
     this.S = (W + H) / 2;
     this.c.width = W;
     this.c.height = H;
-    // glow buffers at 1/2, 1/4 and 1/8 css resolution: [downscale, halo width in buffer px, weight].
-    // The lines are stroked straight into them (see strokes), so the halo is rasterised soft at low
-    // resolution instead of blurring or shrinking the frame: no ctx.filter, no aliasing of thin lines,
-    // and every engine, WebKit included, draws the same glow. Phones get a brighter halo.
-    const spec = small ? [[2, 1.5, 0.42], [4, 1.5, 0.24], [8, 1.7, 0.15]] : [[2, 1.5, 0.22], [4, 1.5, 0.12], [8, 1.7, 0.08]];
+    // glow buffers at 1/2, 1/8 and 1/16 css resolution: [downscale, halo width in buffer px, weight]:
+    // a tight halo plus a long soft tail. The lines are stroked straight into them (see strokes), so
+    // the halo is rasterised soft at low resolution instead of blurring or shrinking the frame: no
+    // ctx.filter, no aliasing of thin lines, and every engine, WebKit included, draws the same glow.
+    // Phones get a brighter halo.
+    const spec = small ? [[2, 1.5, 0.45], [8, 1.7, 0.22], [16, 1.7, 0.12]] : [[2, 1.5, 0.3], [8, 1.7, 0.14], [16, 1.7, 0.09]];
     this.glow = spec.map(([k, width, weight]) => {
       const c = layer(Math.ceil(w / k), Math.ceil(h / k));
       return { c, g: c.getContext('2d'), s: 1 / (k * this.dpr), sw: w / k, sh: h / k, width, weight };
@@ -341,29 +342,45 @@ export class Space {
   // rasterizer fast. Runs are opaque greys (brightness = colour, not alpha), so their round caps
   // overlap without beading and the line reads as one continuous filament. Each run also goes into
   // the glow buffers, wider and at half brightness; they add up, so there the caps are butt and the
-  // joints (smooth, the spline is C1) neither overlap nor gap.
+  // joints (smooth, the spline is C1) neither overlap nor gap. The wide tail buffers take two runs per
+  // stroke at their mean brightness: half the calls, and at that blur the step doesn't show.
   strokes(width) {
-    const ctx = this.ctx, glow = this.glow, STEP = 10;
+    const ctx = this.ctx, [near, ...tail] = this.glow, STEP = 10;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (const c of this.cur.order) {
       const xs = c.xs, ys = c.ys, n = c.n, last = n - 2;
+      let pair = null, sum = 0, runs = 0;
+      const flush = () => {
+        if (pair) for (const L of tail) {
+          L.g.strokeStyle = GREY[Math.round((sum / runs) * 127)];
+          L.g.stroke(pair);
+        }
+        pair = null;
+        sum = runs = 0;
+      };
       ctx.lineWidth = width(c) * this.dpr;
-      for (const L of glow) L.g.lineWidth = (L.width * (0.6 + 0.5 * c.w)) / L.s;
+      for (const L of this.glow) L.g.lineWidth = (L.width * (0.6 + 0.5 * c.w)) / L.s;
       for (let i0 = 0; i0 < last; i0 += STEP) {
         const i1 = Math.min(last, i0 + STEP), a = Math.min(1, this.alphaAt(c, (i0 + i1 + 1) / 2 / (n - 1)));
-        if (a < 0.012) continue;
+        if (a < 0.012) {
+          flush();
+          continue;
+        }
         const p = new Path2D();
         p.moveTo((xs[i0] + xs[i0 + 1]) / 2, (ys[i0] + ys[i0 + 1]) / 2);
         for (let i = i0 + 1; i <= i1; i++) p.quadraticCurveTo(xs[i], ys[i], (xs[i] + xs[i + 1]) / 2, (ys[i] + ys[i + 1]) / 2);
         if (c.o && i1 === last) p.quadraticCurveTo(xs[n - 1], ys[n - 1], (xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2);
         ctx.strokeStyle = GREY[Math.round(a * 255)];
         ctx.stroke(p);
-        for (const L of glow) {
-          L.g.strokeStyle = GREY[Math.round(a * 127)];
-          L.g.stroke(p);
-        }
+        near.g.strokeStyle = GREY[Math.round(a * 127)];
+        near.g.stroke(p);
+        if (!pair) pair = new Path2D();
+        pair.addPath(p);
+        sum += a;
+        if (++runs === 2) flush();
       }
+      flush();
     }
   }
 
@@ -408,7 +425,7 @@ export class Space {
     return n;
   }
 
-  // bloom: also a 2x copy into the 1/4 glow buffer, so bright points flare along with the lines
+  // bloom: also a 2x copy into the 1/8 glow buffer, so bright points flare along with the lines
   sprite(x, y, size, alpha, bloom = false) {
     this.ctx.globalAlpha = Math.min(1, alpha);
     this.ctx.drawImage(this.star, x - size / 2, y - size / 2, size, size);
