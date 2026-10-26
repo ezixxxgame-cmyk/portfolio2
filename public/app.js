@@ -55,16 +55,16 @@ const place = (el, x, y, w, h) => {
   el.setAttribute('height', h.toFixed(1));
 };
 
-/* ---------------- five transition modes ---------------- */
+/* ---------------- four transition modes ---------------- */
 
-// Each mode is its own kind of distortion; the lens, tearing, colour split and shake are tuned to it.
-// lens > 0 bulges out, < 0 sucks in. split/shake: fixed axis (radians) or null for random.
+// Every mode is the same beat: a charge that sucks the screen in, then an impulsive blast with a short
+// glitch. Each has its own distortion texture, tearing, colour split and kick axis.
+// lens < 0 pinches inward during the charge. split/shake: fixed axis (radians) or null for random.
 const MODES = [
-  { field: 'liquid', lens: 1, tears: 'h', split: null, shake: null }, // liquid melt
-  { field: 'swirl', lens: -0.6, tears: 'blocks', split: null, shake: null }, // vortex implosion
-  { field: 'ripple', lens: 0.6, tears: 'h', split: null, shake: null }, // shockwave rings
-  { field: 'shear', lens: 0.35, tears: 'h', split: 0, shake: 0 }, // VHS slit-scan
-  { field: 'rain', lens: -0.45, tears: 'v', split: Math.PI / 2, shake: Math.PI / 2 }, // vertical data rain
+  { field: 'ripple', lens: -0.5, tears: 'h', split: null, shake: null }, // ring shockwave
+  { field: 'ripple', lens: -0.8, tears: 'blocks', split: null, shake: null }, // deep implosion, shattered burst
+  { field: 'shear', lens: -0.4, tears: 'h', split: 0, shake: 0 }, // horizontal slit blast
+  { field: 'rain', lens: -0.4, tears: 'v', split: Math.PI / 2, shake: Math.PI / 2 }, // vertical slit blast
 ];
 let mode = (Math.random() * MODES.length) | 0;
 const nextMode = () => {
@@ -77,14 +77,6 @@ const nextMode = () => {
 // distortion fields don't depend on the viewport: painted once
 if (svgWarp) {
   const set = (name, url) => fields[name].setAttribute('href', url);
-  set('liquid', mapURL(192, 192, (u, v) => [
-    0.6 * Math.sin(TAU * (0.85 * u + 0.45 * v)) + 0.4 * Math.sin(TAU * (1.55 * v - 0.3 * u) + 1.3),
-    0.6 * Math.cos(TAU * (0.65 * v - 0.55 * u) + 0.5) + 0.4 * Math.sin(TAU * (1.35 * u + 0.2 * v) + 2.1),
-  ]));
-  set('swirl', mapURL(160, 160, (u, v) => {
-    const r2 = u * u + v * v, q = r2 < 1 ? ((1 - r2) * (1 - r2)) / 0.286 : 0;
-    return [-v * q, u * q];
-  }));
   set('ripple', mapURL(256, 256, (u, v) => {
     const r = Math.hypot(u, v) || 1e-6, f = r < 1 ? Math.sin(r * TAU * 3.5) * (1 - r) ** 0.6 : 0;
     return [(u / r) * f, (v / r) * f];
@@ -162,38 +154,36 @@ function pattern() {
 // front/punch: shockwave radius 0…1 and strength 0…1
 function warpDOM(el, d, ts, tear, pat, prog, front = 0, punch = 0) {
   if (!svgWarp) return;
-  const W = innerWidth, H = innerHeight, D = Math.max(W, H), jitter = 7 * d * Math.sin(ts * 40);
+  const W = innerWidth, H = innerHeight, D = Math.max(W, H), jitter = 3.5 * d * Math.sin(ts * 40);
   const ux = Math.cos(pat.splitA), uy = Math.sin(pat.splitA), lx = W / 2 + pat.cx * W, ly = H / 2 + pat.cy * H;
   const f = fields[pat.field], flow = (ts * pat.speed * 0.9) % 1;
   place(lensImg, pat.cx * W, pat.cy * H, W, H);
   lensD.setAttribute('scale', (0.22 * D * d * pat.lens).toFixed(1));
   fieldIn.setAttribute('in', pat.field);
-  if (pat.field === 'liquid') place(f, -0.3 * W + Math.sin(ts * 9 * pat.speed * pat.dir + pat.phase) * 0.28 * W, -0.3 * H + Math.cos(ts * 7 * pat.speed + pat.phase) * 0.28 * H, W * 1.6, H * 1.6);
-  else if (pat.field === 'swirl') place(f, lx - 0.75 * D, ly - 0.75 * D, 1.5 * D, 1.5 * D);
-  else if (pat.field === 'ripple') {
+  if (pat.field === 'ripple') {
     const S = D * (0.6 + 1.8 * prog); // rings expand outward through the whole transition
     place(f, lx - S / 2, ly - S / 2, S, S);
   } else if (pat.field === 'shear') place(f, 0, pat.dir > 0 ? -H + flow * H : -flow * H, W, 2 * H); // scrolls up or down
   else place(f, pat.dir > 0 ? -W + flow * W : -flow * W, 0, 2 * W, H); // scrolls left or right
-  waveD.setAttribute('scale', (200 * d * pat.sign).toFixed(1));
+  waveD.setAttribute('scale', (150 * d * pat.sign).toFixed(1));
   const S = D * (0.15 + 2.7 * front);
   place(blastImg, lx - S / 2, ly - S / 2, S, S);
-  blastD.setAttribute('scale', (300 * punch).toFixed(1));
-  tearD.setAttribute('scale', (260 * tear).toFixed(1));
+  blastD.setAttribute('scale', (440 * punch).toFixed(1));
+  tearD.setAttribute('scale', (130 * tear).toFixed(1));
   tearD.setAttribute('in2', 't' + (Math.floor(ts * 34) % 3));
-  chanR.setAttribute('dx', (-33 * d * ux - jitter * uy).toFixed(1));
-  chanR.setAttribute('dy', (-33 * d * uy + jitter * ux).toFixed(1));
-  chanB.setAttribute('dx', (33 * d * ux + jitter * uy).toFixed(1));
-  chanB.setAttribute('dy', (33 * d * uy - jitter * ux).toFixed(1));
+  chanR.setAttribute('dx', (-20 * d * ux - jitter * uy).toFixed(1));
+  chanR.setAttribute('dy', (-20 * d * uy + jitter * ux).toFixed(1));
+  chanB.setAttribute('dx', (20 * d * ux + jitter * uy).toFixed(1));
+  chanB.setAttribute('dy', (20 * d * uy - jitter * ux).toFixed(1));
   el.style.filter = d > 0.003 || tear > 0 || punch > 0.003 ? 'url(#warp)' : '';
 }
 
 /* ---------------- galaxy teleport ---------------- */
 
-// OUT: the current screen melts — lens, field and colour split build up while the next galaxy gathers
-// as a compressed core in the middle; right before the burst everything is sucked inward and a short
-// glitch and shake land. POP: flash. IN: the explosion — a shockwave rolls outward through content
-// and lines, the new galaxy and screen burst out from the centre, the old lines are blown away.
+// OUT: the charge — lens, field and colour split build up while the next galaxy gathers as a
+// compressed core in the middle; right before the burst everything is sucked inward and a short
+// glitch lands. POP: flash and an impact kick. IN: the explosion — a shockwave rips outward through
+// content and lines, the new galaxy and screen burst out from the centre, the old lines are blown away.
 // The background galaxies crossfade across exactly this window.
 const OUT = 280, IN = 460;
 
@@ -213,15 +203,16 @@ function warpCanvas(d, glow, ts, tear, pat, sx = 0, sy = 0, front = 0, punch = 0
   const fx = space.fx, dpr = space.dpr, R = Math.hypot(space.W, space.H) / 2;
   Object.assign(fx, {
     radius: R, warp: 1.4 * pat.lens * d, cx: pat.cx, cy: pat.cy,
-    mode: pat.field, wave: 85 * d * dpr * pat.sign, phase: ts * 9 * pat.speed * pat.dir + pat.phase,
-    blastR: front * 1.3 * R, blastA: punch * 150 * dpr,
-    split: 20 * d, splitA: pat.splitA, glitch: tear > 0.12 ? tear * 0.8 : 0, glitchKind: pat.tears,
+    mode: pat.field, wave: 64 * d * dpr * pat.sign, phase: ts * 9 * pat.speed * pat.dir + pat.phase,
+    blastR: front * 1.3 * R, blastA: punch * 230 * dpr,
+    split: 12 * d, splitA: pat.splitA, glitch: tear > 0.12 ? tear * 0.4 : 0, glitchKind: pat.tears,
     ox: sx * dpr, oy: sy * dpr, gain: 1 + 0.9 * glow,
   });
 }
 
 function stepTransition(now) {
-  const t = now - tr.t0, ts = t / 1000, { from, next, pat } = tr;
+  // a frame that began before go() ran (rAF-aligned input) would give t < 0, and p ** 1.8 is NaN
+  const t = Math.max(0, now - tr.t0), ts = t / 1000, { from, next, pat } = tr;
   space.mix = smooth(0, 1, t / (tr.fade ? 420 : OUT + IN));
 
   if (tr.fade) {
@@ -242,27 +233,28 @@ function stepTransition(now) {
       tr.frames++;
     }
     tr.lastT = now;
-    const p = t / OUT, d = p ** 1.8, tear = smooth(0.55, 0.9, p), implode = smooth(0.68, 1, p);
-    // ~80ms shake: one wobble whose envelope starts and ends at rest, leaning the pattern's way
-    const q = clamp((p - 0.71) / 0.29, 0, 1), env = Math.sin(Math.PI * q) ** 2;
-    const a = 6 * env * Math.sin(TAU * q), b = 3 * env * Math.sin(TAU * q + 0.8);
-    const sx = a * Math.cos(pat.shakeA) - b * Math.sin(pat.shakeA), sy = a * Math.sin(pat.shakeA) + b * Math.cos(pat.shakeA);
-    from.style.transform = `translate3d(${sx.toFixed(2)}px,${sy.toFixed(2)}px,0) scale(${(1 + 0.1 * d * Math.sign(pat.lens) - 0.16 * implode).toFixed(4)})`;
+    // the charge: lens and field build up, then the last ~100ms suck everything in, accelerating
+    const p = t / OUT, d = p ** 1.8, tear = smooth(0.55, 0.9, p), implode = smooth(0.6, 1, p) ** 2;
+    from.style.transform = `scale(${(1 - 0.1 * d - 0.2 * implode).toFixed(4)})`;
     warpDOM(from, d, ts, tear, pat, prog);
-    warpCanvas(d, smooth(0, 1, p), ts, tear, pat, sx, sy);
-    space.zoomOld = 1 - 0.14 * implode; // the old lines get sucked in just before the burst
+    warpCanvas(d, smooth(0, 1, p), ts, tear, pat);
+    space.zoomOld = 1 - 0.2 * implode; // the old lines get sucked in just before the burst
     space.zoomNew = 0.22 + 0.08 * p; // the next galaxy waits as a compressed core
   } else {
     if (!tr.popped) pop();
-    const p = Math.min(1, (t - OUT) / IN), e = easeOutExpo(p);
-    const d = Math.max(0, 1 - p / 0.5) ** 2, tear = p < 0.12 ? 1 - p / 0.12 : 0;
-    const pb = Math.min(1, (t - OUT) / 420), front = 1 - (1 - pb) ** 3, punch = (1 - pb) ** 1.6;
-    next.style.transform = `scale(${(0.8 + 0.2 * e).toFixed(4)})`;
+    const k = t - OUT, p = Math.min(1, k / IN), e = easeOutExpo(p);
+    const d = Math.max(0, 1 - p / 0.2) ** 2, tear = p < 0.12 ? 1 - p / 0.12 : 0;
+    // the blast: the front tears outward at once and its push is spent within a few frames
+    const pb = Math.min(1, k / 420), front = 1 - (1 - pb) ** 5, punch = (1 - pb) ** 2.6;
+    // impact kick: a hard jolt along the pattern's axis that rings down in ~150ms
+    const kick = 16 * Math.exp(-k / 45), a = kick * Math.cos(k * 0.15), b = 0.4 * kick * Math.sin(k * 0.11 + 0.8);
+    const sx = a * Math.cos(pat.shakeA) - b * Math.sin(pat.shakeA), sy = a * Math.sin(pat.shakeA) + b * Math.cos(pat.shakeA);
+    next.style.transform = `translate3d(${sx.toFixed(2)}px,${sy.toFixed(2)}px,0) scale(${(0.8 + 0.2 * e).toFixed(4)})`;
     next.style.opacity = Math.min(1, p * 6);
     warpDOM(next, d, ts, tear, pat, prog, front, punch);
-    warpCanvas(d, 0, ts, tear, pat, 0, 0, front, punch);
+    warpCanvas(d, 0, ts, tear, pat, sx, sy, front, punch);
     space.zoomNew = 0.3 + 0.7 * e; // the new galaxy bursts outward
-    space.zoomOld = 0.86 + 1.4 * (1 - (1 - p) ** 3); // the old one is blown away
+    space.zoomOld = 0.8 + 1.6 * e; // the old one is blown away
     if (p >= 1) finish();
   }
 }
@@ -281,7 +273,7 @@ function pop() {
   next.classList.add('is-active');
   current = to;
   space.calm = calmRects(next);
-  if (!tr.fade) $('.flash').animate([{ opacity: 0.28 }, { opacity: 0 }], { duration: 220, easing: 'ease-out' });
+  if (!tr.fade) $('.flash').animate([{ opacity: 0.36 }, { opacity: 0 }], { duration: 180, easing: 'cubic-bezier(.1,.7,.3,1)' });
   if (to === 1) carousel.enter(screens.indexOf(from) > 1);
   arrive(next);
 }

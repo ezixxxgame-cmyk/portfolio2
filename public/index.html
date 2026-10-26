@@ -31,18 +31,16 @@ FORM: задана брифом (4 референса), без рулетки н
     <symbol id="i-down" viewBox="0 0 12 12"><path d="M6 1.5v9M2.6 7.2 6 10.6l3.4-3.4"/></symbol>
     <symbol id="i-check" viewBox="0 0 12 12"><path d="M2.4 6.3 4.9 8.7 9.7 3.5"/></symbol>
   </defs>
-  <!-- transition warp: lens → one of five distortion fields → explosion shockwave → tearing → per-channel split -->
+  <!-- transition warp: lens → one of three distortion fields → explosion shockwave → tearing → per-channel split -->
   <filter id="warp" color-interpolation-filters="sRGB" x="0" y="0" width="1" height="1">
     <feFlood flood-color="#808080" result="flat"/>
     <feImage id="fx-lens" result="lensImg" preserveAspectRatio="none"/>
     <feMerge result="lens"><feMergeNode in="flat"/><feMergeNode in="lensImg"/></feMerge>
     <feDisplacementMap id="fx-lens-d" in="SourceGraphic" in2="lens" scale="0" xChannelSelector="R" yChannelSelector="G" result="a"/>
-    <feImage class="fx-field" data-mode="liquid" result="liquid" preserveAspectRatio="none"/>
-    <feImage class="fx-field" data-mode="swirl" result="swirl" preserveAspectRatio="none"/>
     <feImage class="fx-field" data-mode="ripple" result="ripple" preserveAspectRatio="none"/>
     <feImage class="fx-field" data-mode="shear" result="shear" preserveAspectRatio="none"/>
     <feImage class="fx-field" data-mode="rain" result="rain" preserveAspectRatio="none"/>
-    <feMerge result="wave"><feMergeNode in="flat"/><feMergeNode id="fx-field-in" in="liquid"/></feMerge>
+    <feMerge result="wave"><feMergeNode in="flat"/><feMergeNode id="fx-field-in" in="ripple"/></feMerge>
     <feDisplacementMap id="fx-wave-d" in="a" in2="wave" scale="0" xChannelSelector="R" yChannelSelector="G" result="b"/>
     <feImage id="fx-blast" result="blastImg" preserveAspectRatio="none"/>
     <feMerge result="blast"><feMergeNode in="flat"/><feMergeNode in="blastImg"/></feMerge>

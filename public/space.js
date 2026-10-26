@@ -110,11 +110,11 @@ export class Space {
     // radius (device px), mode/wave/phase: distortion field + amplitude (px) + phase,
     // split/splitA: colour split px + angle, glitch/glitchKind: tearing strength + 'h' | 'v' | 'blocks',
     // ox/oy: shake
-    this.fx = { warp: 0, cx: 0, cy: 0, radius: 1, mode: 'liquid', wave: 0, phase: 0, zoom: 1, gain: 1, split: 0, splitA: 0, glitch: 0, glitchKind: 'h', ox: 0, oy: 0 };
+    this.fx = { warp: 0, cx: 0, cy: 0, radius: 1, mode: 'ripple', wave: 0, phase: 0, zoom: 1, gain: 1, split: 0, splitA: 0, glitch: 0, glitchKind: 'h', ox: 0, oy: 0 };
     this.mix = 1; // galaxy crossfade progress, driven by the transition
     this.zoomOld = this.zoomNew = 1; // per-galaxy scale during the explosion
     this.fx.blastR = this.fx.blastA = 0; // explosion shockwave: front radius and push, device px
-    this.soft = 'filter' in this.ctx; // GPU gaussian glow; older Safari falls back to plain downsampling
+    this.soft = 'filter' in this.ctx; // GPU gaussian glow; Safari falls back to a deeper downsampling chain
     this.calm = [];
     this.lit = this.lit1 = 1;
     this.layer = { alpha: 1, zoom: 1 };
@@ -150,8 +150,19 @@ export class Space {
     this.S = (W + H) / 2;
     this.c.width = W;
     this.c.height = H;
-    this.glow = [2, 4].map((k) => layer(Math.ceil(W / k), Math.ceil(H / k)));
-    this.glowCtx = this.glow.map((c) => c.getContext('2d'));
+    // glow mip chain: [downscale, blur (level px per dpr), weight when folded into the level above,
+    // keep (0: the level is only a resampling step, its own content is dropped)]. Weights multiply
+    // down the chain; the product on a wide level stays near 2-3, or its faint 8-bit tail turns into
+    // visible bands. Phones get a brighter halo. Safari has no ctx.filter: there the chain runs
+    // deeper and the repeated 2x halving and doubling is the blur.
+    const small = w < 760;
+    const spec = this.soft
+      ? (small ? [[2, 1.8, 1.6], [4, 2.6, 1.7]] : [[2, 1.4, 1], [4, 2.6, 2]])
+      : [[2, 0, 1, 0], [4, 0, 1, 0], [8, 0, 1], ...(small ? [[16, 0, 1.6], [32, 0, 1.7]] : [[16, 0, 2]])];
+    this.glow = spec.map(([k, blur, add, keep = 1]) => {
+      const c = layer(Math.ceil(W / k), Math.ceil(H / k));
+      return { c, g: c.getContext('2d'), blur, add, keep };
+    });
     this.scratch = layer(W, H); // frame snapshot for the colour split and glitch tearing
     this.sctx = this.scratch.getContext('2d');
     // background stars: mostly faint, a few with a soft glow
@@ -167,9 +178,8 @@ export class Space {
     if (fade && this.set) this.prev = this.set;
     const g = GALAXIES[index];
     this.index = index;
-    const small = innerWidth < 760;
     const curves = g.curves.map((s, k) => {
-      const n = s.o ? (small ? 200 : 300) : (small ? 150 : 230);
+      const n = s.o ? 300 : 230;
       return {
         ...s, n,
         xs: new Float32Array(n), ys: new Float32Array(n),
@@ -186,7 +196,7 @@ export class Space {
     this.set = { g, curves, order: [...curves].sort((a, b) => a.w - b.w) };
   }
 
-  // shake, liquid ripple, lens and zoom; every term is smooth, so lines bend without kinks
+  // shake, distortion field, shockwave, lens and zoom; every term is smooth, so lines bend without kinks
   lens(x, y) {
     const fx = this.fx, W = this.W, H = this.H, cx = W / 2, cy = H / 2, zoom = fx.zoom * this.layer.zoom;
     x += fx.ox;
@@ -194,15 +204,7 @@ export class Space {
     const lx = cx + fx.cx * W, ly = cy + fx.cy * H, A = fx.wave, ph = fx.phase;
     if (A) {
       const u = x / W, v = y / H;
-      if (fx.mode === 'swirl') {
-        // vortex: rotation that fades to nothing at the lens radius
-        const dx = x - lx, dy = y - ly, r2 = (dx * dx + dy * dy) / (fx.radius * fx.radius);
-        if (r2 < 1) {
-          const a = (A / this.dpr / 100) * (1 - r2) * (1 - r2), c = Math.cos(a), s = Math.sin(a);
-          x = lx + dx * c - dy * s;
-          y = ly + dx * s + dy * c;
-        }
-      } else if (fx.mode === 'ripple') {
+      if (fx.mode === 'ripple') {
         // shockwave: radial rings travelling outward
         const dx = x - lx, dy = y - ly, d = Math.hypot(dx, dy) || 1, r = d / fx.radius;
         if (r < 1) {
@@ -212,11 +214,8 @@ export class Space {
         }
       } else if (fx.mode === 'shear') {
         x += A * (0.7 * Math.sin(TAU * 3 * v + ph) + 0.3 * Math.sin(TAU * 8.5 * v - ph * 1.7));
-      } else if (fx.mode === 'rain') {
-        y += A * (0.7 * Math.sin(TAU * 4 * u + ph) + 0.3 * Math.sin(TAU * 9.5 * u + ph * 1.3));
       } else {
-        x += A * (0.6 * Math.sin(TAU * (1.7 * u + 0.9 * v) + ph) + 0.4 * Math.sin(TAU * (3.1 * v - 0.6 * u) + 1.3 - ph * 1.3));
-        y += A * (0.6 * Math.cos(TAU * (1.3 * v - 1.1 * u) + 0.5 + ph * 0.8) + 0.4 * Math.sin(TAU * (2.7 * u + 0.4 * v) + 2.1 + ph));
+        y += A * (0.7 * Math.sin(TAU * 4 * u + ph) + 0.3 * Math.sin(TAU * 9.5 * u + ph * 1.3));
       }
     }
     if (fx.blastA) {
@@ -470,18 +469,28 @@ export class Space {
       ctx.globalAlpha = 1;
     }
 
-    // glow: gaussian-blurred copies at 1/2 and 1/4 resolution, added back on top
-    const [A, B] = this.glow, [ca, cb] = this.glowCtx;
-    ca.clearRect(0, 0, A.width, A.height);
-    if (this.soft) ca.filter = `blur(${(1.4 * dpr).toFixed(2)}px)`;
-    ca.drawImage(this.c, 0, 0, A.width, A.height);
-    cb.clearRect(0, 0, B.width, B.height);
-    if (this.soft) cb.filter = `blur(${(2.6 * dpr).toFixed(2)}px)`;
-    cb.drawImage(A, 0, 0, B.width, B.height);
+    // glow: each level is the one above, halved and blurred; then the chain folds back up, smallest
+    // level first, so the whole bloom lands on the frame in a single full-size draw
+    let src = this.c;
+    for (const L of this.glow) {
+      L.g.globalCompositeOperation = 'source-over';
+      L.g.globalAlpha = 1;
+      if (this.soft) L.g.filter = `blur(${(L.blur * dpr).toFixed(2)}px)`;
+      L.g.clearRect(0, 0, L.c.width, L.c.height);
+      L.g.drawImage(src, 0, 0, L.c.width, L.c.height);
+      src = L.c;
+    }
+    for (let i = this.glow.length - 1; i >= 0; i--) {
+      const L = this.glow[i], up = this.glow[i - 1], g = up ? up.g : ctx, c = g.canvas;
+      if (this.soft && up) g.filter = 'none';
+      g.globalCompositeOperation = up && !up.keep ? 'copy' : 'lighter';
+      for (let a = L.add; a > 0; a--) {
+        g.globalAlpha = Math.min(1, a);
+        g.drawImage(L.c, 0, 0, c.width, c.height);
+        g.globalCompositeOperation = 'lighter';
+      }
+    }
     ctx.globalAlpha = 1;
-    ctx.drawImage(A, 0, 0, W, H);
-    ctx.drawImage(B, 0, 0, W, H);
-    ctx.drawImage(B, 0, 0, W, H);
 
     ctx.globalCompositeOperation = 'source-over';
     if (fx.glitch) {
