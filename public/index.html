@@ -31,7 +31,8 @@ FORM: задана брифом (4 референса), без рулетки н
     <symbol id="i-down" viewBox="0 0 12 12"><path d="M6 1.5v9M2.6 7.2 6 10.6l3.4-3.4"/></symbol>
     <symbol id="i-check" viewBox="0 0 12 12"><path d="M2.4 6.3 4.9 8.7 9.7 3.5"/></symbol>
   </defs>
-  <!-- transition warp: lens → one of three distortion fields → explosion shockwave → tearing → per-channel split -->
+  <!-- transition warp: lens → one of three distortion fields → explosion shockwave → tearing → per-channel split;
+       app.js rewires the `in` links every frame, so idle stages drop out of the graph -->
   <filter id="warp" color-interpolation-filters="sRGB" x="0" y="0" width="1" height="1">
     <feFlood flood-color="#808080" result="flat"/>
     <feImage id="fx-lens" result="lensImg" preserveAspectRatio="none"/>
@@ -49,13 +50,16 @@ FORM: задана брифом (4 референса), без рулетки н
     <feImage class="fx-tear" result="t1" preserveAspectRatio="none"/>
     <feImage class="fx-tear" result="t2" preserveAspectRatio="none"/>
     <feDisplacementMap id="fx-tear-d" in="bb" in2="t0" scale="0" xChannelSelector="R" yChannelSelector="G" result="c"/>
-    <feColorMatrix in="c" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/>
+    <feColorMatrix class="fx-src" in="c" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/>
     <feOffset id="fx-r" in="r" dx="0" dy="0" result="ro"/>
-    <feColorMatrix in="c" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g"/>
-    <feColorMatrix in="c" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="bl"/>
+    <feColorMatrix class="fx-src" in="c" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g"/>
+    <feColorMatrix class="fx-src" in="c" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="bl"/>
     <feOffset id="fx-b" in="bl" dx="0" dy="0" result="bo"/>
     <feBlend in="ro" in2="g" mode="screen" result="rg"/>
-    <feBlend in="rg" in2="bo" mode="screen"/>
+    <!-- split at rest: the three screened channels only raise alpha to 1 − (1 − a)³; this gets the same in two steps -->
+    <feColorMatrix class="fx-src" in="c" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="k"/>
+    <feBlend in="k" in2="k" mode="screen" result="kk"/>
+    <feBlend id="fx-out" in="rg" in2="bo" mode="screen"/>
   </filter>
 </svg>
 
@@ -67,6 +71,12 @@ FORM: задана брифом (4 референса), без рулетки н
     <a class="pill" href="https://t.me/wa1dx" target="_blank" rel="noopener">Telegram</a>
   </nav>
 </header>
+
+<label class="lite" title="Простая смена экранов без эффектов — для слабых устройств">
+  <input type="checkbox" role="switch">
+  <span class="lite__text">Лёгкий режим</span>
+  <span class="lite__track" aria-hidden="true"></span>
+</label>
 
 <main class="deck">
   <section class="screen hero" id="top" aria-label="Главная">

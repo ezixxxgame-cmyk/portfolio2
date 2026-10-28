@@ -29,13 +29,14 @@ const byId = (id) => document.getElementById(id);
 const lensImg = byId('fx-lens'), lensD = byId('fx-lens-d'), fieldIn = byId('fx-field-in'), waveD = byId('fx-wave-d');
 const tearD = byId('fx-tear-d'), chanR = byId('fx-r'), chanB = byId('fx-b'), blastImg = byId('fx-blast'), blastD = byId('fx-blast-d');
 const fields = Object.fromEntries($$('.fx-field').map((el) => [el.dataset.mode, el]));
+const srcs = $$('.fx-src'), out = byId('fx-out');
 
 // Paints a displacement map: f(u, v, row) returns [dx, dy] in −1…1 for u, v in −1…1.
 function mapURL(w, h, f) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
-  const g = c.getContext('2d'), img = g.createImageData(w, h), d = img.data;
+  const g = c.getContext('2d', { willReadFrequently: true }), img = g.createImageData(w, h), d = img.data;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const [dx, dy] = f(((x + 0.5) / w) * 2 - 1, ((y + 0.5) / h) * 2 - 1, y), i = (y * w + x) * 4;
@@ -87,13 +88,14 @@ if (svgWarp) {
 }
 
 // tearing maps: horizontal bands, vertical strips or scattered blocks, drawn with fillRect and encoded
-// off the main thread; repainted after every transition for the next mode, so no two glitches match
+// off the main thread; repainted after every transition for the next mode, so no two glitches match.
+// The map canvases stay on the CPU: encoding a GPU canvas reads it back and stalls a frame.
 function paintTears(kind) {
   const N = 256, rnd = (a, b) => Math.round(a + Math.random() * (b - a));
   $$('.fx-tear').forEach((el) => {
     const c = document.createElement('canvas');
     c.width = c.height = N;
-    const g = c.getContext('2d'), col = (dx, dy) => `rgb(${Math.round(128 + 127 * dx)},${Math.round(128 + 127 * dy)},128)`;
+    const g = c.getContext('2d', { willReadFrequently: true }), col = (dx, dy) => `rgb(${Math.round(128 + 127 * dx)},${Math.round(128 + 127 * dy)},128)`;
     g.fillStyle = col(0, 0);
     g.fillRect(0, 0, N, N);
     for (let p = 0; kind !== 'blocks' && p < N; ) {
@@ -176,7 +178,18 @@ function warpDOM(el, d, ts, tear, pat, prog, front = 0, punch = 0) {
   chanR.setAttribute('dy', (-20 * d * uy + jitter * ux).toFixed(1));
   chanB.setAttribute('dx', (20 * d * ux + jitter * uy).toFixed(1));
   chanB.setAttribute('dy', (20 * d * uy - jitter * ux).toFixed(1));
-  el.style.filter = d > 0.003 || tear > 0 || punch > 0.003 ? 'url(#warp)' : '';
+  // idle stages are skipped: Chromium only builds the primitives the output depends on. Below the
+  // threshold the lens, field and split move content by under a pixel.
+  const warped = d > 0.003;
+  let src = warped ? 'b' : 'SourceGraphic';
+  blastD.setAttribute('in', src);
+  if (punch > 0.003) src = 'bb';
+  tearD.setAttribute('in', src);
+  if (tear > 0) src = 'c';
+  srcs.forEach((s) => s.setAttribute('in', src));
+  out.setAttribute('in', warped ? 'rg' : src);
+  out.setAttribute('in2', warped ? 'bo' : 'kk');
+  el.style.filter = warped || tear > 0 || punch > 0.003 ? 'url(#warp)' : '';
 }
 
 /* ---------------- galaxy teleport ---------------- */
@@ -196,8 +209,21 @@ function go(to, focus = false) {
   space.fx.zoom = 1;
   space.setGalaxy(to, true);
   space.mix = 0;
-  if (reduce.matches) tr.fade = true;
+  if (reduce.matches || liteBox.checked) tr.fade = true;
 }
+
+// lite mode: the plain crossfade instead of the warp, for weak devices; remembered per browser
+const liteBox = $('.lite input');
+try {
+  liteBox.checked = localStorage.lite === '1';
+} catch {}
+liteBox.addEventListener('change', () => {
+  // after a click the focus would stay on the switch and keep arrows and Space from turning screens
+  if (!liteBox.matches(':focus-visible')) liteBox.blur();
+  try {
+    localStorage.lite = liteBox.checked ? '1' : '';
+  } catch {}
+});
 
 // glow: target over-brightness 0…1; the canvas smooths it into a quick swell and a long fade
 function warpCanvas(d, glow, ts, tear, pat, sx = 0, sy = 0, front = 0, punch = 0) {

@@ -43,6 +43,18 @@ h1, h2, h3, p { margin: 0; }
 .pill { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 17px; border: 1px solid var(--line-3); border-radius: 999px; transition: background-color .3s, color .3s, border-color .3s; }
 .pill:hover { background: #fff; color: #000; border-color: #fff; }
 
+/* ---------- lite mode switch ---------- */
+/* sits inside the screens' 40px bottom padding, so scrolled-down content ends clear of it */
+.lite { position: fixed; z-index: 6; right: var(--pad); bottom: max(4px, env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 11px; color: var(--fg-3); cursor: pointer; transition: color .3s; }
+html:not(.js) .lite { display: none; }
+.lite:hover, .lite:has(:checked) { color: var(--fg-2); }
+.lite input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.lite__track { position: relative; width: 26px; height: 14px; border: 1px solid var(--line-2); border-radius: 999px; transition: border-color .3s; }
+.lite__track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); transition: transform .35s var(--ease), background-color .3s; }
+.lite :checked ~ .lite__track { border-color: var(--line-3); }
+.lite :checked ~ .lite__track::after { transform: translateX(12px); background: #fff; }
+.lite :focus-visible ~ .lite__track { outline: 1px solid #fff; outline-offset: 3px; }
+
 /* ---------- shared ---------- */
 .screen { position: relative; min-height: 100svh; padding: calc(var(--bar-h) + 16px) var(--pad) 40px; }
 .js .screen { position: fixed; inset: 0; z-index: 2; min-height: 0; visibility: hidden; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none; }
@@ -187,6 +199,7 @@ fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 
 @media (max-width: 760px) {
   .nav a[data-go] { display: none; }
+  .lite { top: calc(var(--bar-h) - 6px); bottom: auto; } /* the bottom edge holds the works screen's skip button */
   .screen { padding-top: calc(var(--bar-h) + 4px); padding-bottom: 28px; }
   .hint { display: none; }
 
